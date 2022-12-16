@@ -5,5 +5,9 @@
   "es.port" : "9200",
   "index.prefix" : ".ds-logs-business_events-",
   "topic.prefix" : "es_",
-  "incrementing.field.name" : "@timestamp"
+  "incrementing.field.name" : "@timestamp",
+  "transforms" : "transformTopicName",
+  "transforms.transformTopicName.type" : "org.apache.kafka.connect.transforms.RegexRouter",
+  "transforms.transformTopicName.regex" : "es_.ds-logs-(.*?)-.*",
+  "transforms.transformTopicName.replacement" : "es_$1"
 }

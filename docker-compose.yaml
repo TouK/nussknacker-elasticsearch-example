@@ -1,0 +1,239 @@
+version: "3.9"
+services:
+  elasticsearch:
+    image: elasticsearch:8.5.3
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    cap_add:
+      - IPC_LOCK
+
+  kibana:
+    image: kibana:8.5.3
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - 5601:5601
+    depends_on:
+      - elasticsearch
+
+  zookeeper:
+    container_name: zookeeper
+    image: zookeeper:3.5.8
+    environment:
+      ZOO_MY_ID: 1
+      JVMFLAGS: "-Xms64m -Xmx128m"
+      ZOO_4LW_COMMANDS_WHITELIST: "srvr,ruok"
+    volumes:
+      - storage_zookeeper_datalog:/datalog
+      - storage_zookeeper_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", 'echo "ruok" | nc -w 2 -q 2 localhost 2181 | grep imok']
+      interval: 5s
+      retries: 5
+
+  kafka:
+    container_name: kafka
+    # It is used for kafka logs.dir - can't be randomly changed
+    hostname: kafka
+    image: wurstmeister/kafka:2.13-2.8.1
+    ports:
+      - "3032:3032"
+    environment:
+      HOSTNAME_COMMAND: "docker info | grep ^Name: | cut -d' ' -f 2"
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:3032
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:3032
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CREATE_TOPICS: "es_business_events:1:1"
+      KAFKA_BROKER_ID: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: -Xms128m -Xmx512m
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - storage_kafka_data:/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --topic es_business_events --describe"]
+      interval: 10s
+      retries: 5
+    depends_on:
+      - zookeeper
+
+  akhq:
+    container_name: akhq
+    image: tchiotludo/akhq:0.22.0
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          security:
+            default-group: admin
+          connections:
+            kafka:
+              properties:
+                bootstrap.servers: "kafka:9092"
+              schema-registry:
+                url: "http://schemaregistry:8081"
+              connect:
+                - name: connect
+                  url: "http://connect:8083"
+    ports:
+      - 8085:8080
+    links:
+      - kafka
+      - schemaregistry
+      - connect
+
+  schemaregistry:
+    container_name: schemaregistry
+    image: confluentinc/cp-schema-registry:7.3.0
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_HOST_NAME: schemaregistry
+    ports:
+      - "3082:8081"
+    depends_on:
+      - kafka
+    healthcheck:
+      test: ["CMD-SHELL", "curl localhost:8081/subjects"]
+      interval: 20s
+      retries: 5
+
+  connect:
+    image: confluentinc/cp-kafka-connect-base:7.3.0
+    container_name: connect
+    depends_on:
+      - zookeeper
+      - kafka
+    ports:
+      - 8083:8083
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: "kafka:9092"
+
+      CONNECT_LISTENERS: http://0.0.0.0:8083
+      CONNECT_GROUP_ID: "connect-cluster"
+      CONNECT_PRODUCER_CLIENT_ID: "connect-worker-producer"
+      CONNECT_PRODUCER_ENABLE_IDEMPOTENCE: 'true'
+
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-statuses
+
+      CONNECT_REPLICATION_FACTOR: 1
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: 'true'
+      CONNECT_KEY_CONVERTER: 'io.confluent.connect.avro.AvroConverter'
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: 'http://schemaregistry:8081'
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: 'true'
+      CONNECT_VALUE_CONVERTER: 'io.confluent.connect.avro.AvroConverter'
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: 'http://schemaregistry:8081'
+
+      CONNECT_INTERNAL_KEY_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
+      CONNECT_INTERNAL_VALUE_CONVERTER: 'org.apache.kafka.connect.json.JsonConverter'
+
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/data/connect-jars
+
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      CONNECT_LOG4J_LOGGERS: org.reflections=ERROR
+
+      # Reduce Connect memory utilization
+      KAFKA_JVM_PERFORMANCE_OPTS: -server -XX:+UseG1GC -XX:GCTimeRatio=1
+        -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=20
+        -XX:MaxGCPauseMillis=10000 -XX:InitiatingHeapOccupancyPercent=35 -XX:+ExplicitGCInvokesConcurrent
+        -XX:MaxInlineLevel=15 -Djava.awt.headless=true
+    command:
+      - bash
+      - -c
+      - |
+        echo "Installing Connector"
+        confluent-hub install --no-prompt dariobalinzo/kafka-connect-elasticsearch-source:1.5.2
+        /etc/confluent/docker/run &
+        sleep infinity
+    healthcheck:
+      test: ["CMD-SHELL", "curl http://localhost:8083"]
+      interval: 10s
+      retries: 5
+
+  designer:
+    container_name: designer
+    image: touk/nussknacker:1.6.1
+    ports:
+      - "3081:8080"
+    environment:
+      JDK_JAVA_OPTIONS: -Xmx256M
+      INFLUXDB_URL: http://influxdb:8086
+      KAFKA_ADDRESS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schemaregistry:8081
+      DEFAULT_SCENARIO_TYPE: streaming-lite-embedded
+      USAGE_REPORTS_FINGERPRINT: elasticsearch-example
+    volumes:
+      - storage_designer:/opt/nussknacker/storage
+
+  influxdb:
+    container_name: influxdb
+    hostname: influxdb
+    image: influxdb:1.8.10
+    ports:
+      - "3086:8086"
+    environment:
+      INFLUXDB_DB: esp
+      INFLUXDB_DATA_QUERY_LOG_ENABLED: "false"
+      INFLUXDB_HTTP_LOG_ENABLED: "false"
+    volumes:
+      - storage_influxdb:/var/lib/influxdb
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:8.4.2
+    volumes:
+      - ./grafana:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:/grafana
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+    depends_on:
+      - influxdb
+
+  nginx:
+    container_name: nginx
+    image: nginx:1.17.6
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    #we restart over 30s to let additional services (grafana etc.) come up
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 6
+
+volumes:
+  es_data:
+    driver: local
+  storage_zookeeper_datalog:
+    name: storage_zookeeper_datalog
+  storage_zookeeper_data:
+    name: storage_zookeeper_data
+  storage_kafka_data:
+    name: storage_kafka_data
+  storage_influxdb:
+    name: storage_influxdb
+  storage_designer:
+    name: storage_designer

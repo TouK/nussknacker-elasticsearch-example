@@ -1,0 +1,9 @@
+{
+  "connector.class": "com.github.dariobalinzo.ElasticSourceConnector",
+  "tasks.max": "1",
+  "es.host" : "elasticsearch",
+  "es.port" : "9200",
+  "index.prefix" : ".ds-logs-business_events-",
+  "topic.prefix" : "es_",
+  "incrementing.field.name" : "@timestamp"
+}

@@ -1,0 +1,83 @@
+{
+  "metaData" : {
+    "id" : "test-scenario",
+    "typeSpecificData" : {
+      "parallelism" : null,
+      "type" : "LiteStreamMetaData"
+    },
+    "additionalFields" : null,
+    "subprocessVersions" : {
+      
+    }
+  },
+  "nodes" : [
+    {
+      "id" : "kafka",
+      "ref" : {
+        "typ" : "kafka",
+        "parameters" : [
+          {
+            "name" : "Topic",
+            "expression" : {
+              "language" : "spel",
+              "expression" : "'es_business_events'"
+            }
+          },
+          {
+            "name" : "Schema version",
+            "expression" : {
+              "language" : "spel",
+              "expression" : "'latest'"
+            }
+          }
+        ]
+      },
+      "additionalFields" : {
+        "description" : null,
+        "layoutData" : {
+          "x" : 0,
+          "y" : 0
+        }
+      },
+      "type" : "Source"
+    },
+    {
+      "nextFalse" : [
+      ],
+      "id" : "filter",
+      "expression" : {
+        "language" : "spel",
+        "expression" : "#input.event.eventType == 'login'"
+      },
+      "isDisabled" : null,
+      "additionalFields" : {
+        "description" : null,
+        "layoutData" : {
+          "x" : 0,
+          "y" : 180
+        }
+      },
+      "type" : "Filter"
+    },
+    {
+      "id" : "dead-end",
+      "ref" : {
+        "typ" : "dead-end",
+        "parameters" : [
+        ]
+      },
+      "endResult" : null,
+      "isDisabled" : null,
+      "additionalFields" : {
+        "description" : null,
+        "layoutData" : {
+          "x" : 0,
+          "y" : 360
+        }
+      },
+      "type" : "Sink"
+    }
+  ],
+  "additionalBranches" : [
+  ]
+}

@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 
 ES_URL=http://localhost:9200
-INDEX_NAME=logs-business_events-default
+DATA_STREAM=events-business_events-default
 EVENT_FILE=$1
 DOC=$(cat << EOF
 {
@@ -14,4 +14,4 @@ DOC=$(cat << EOF
 EOF
 )
 
-curl -X POST -H "Content-Type: application/json" -d "$DOC"  $ES_URL/$INDEX_NAME/_doc
+curl -X POST -H "Content-Type: application/json" -d "$DOC"  $ES_URL/$DATA_STREAM/_doc

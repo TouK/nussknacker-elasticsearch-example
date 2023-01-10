@@ -1,6 +1,7 @@
 version: "3.9"
 services:
   elasticsearch:
+    container_name: elasticsearch
     image: elasticsearch:8.5.3
     environment:
       - discovery.type=single-node
@@ -21,6 +22,7 @@ services:
       - IPC_LOCK
 
   kibana:
+    container_name: kibana
     image: kibana:8.5.3
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
@@ -74,7 +76,7 @@ services:
 
   akhq:
     container_name: akhq
-    image: tchiotludo/akhq:0.22.0
+    image: tchiotludo/akhq:0.23.0
     environment:
       AKHQ_CONFIGURATION: |
         akhq:
@@ -89,6 +91,10 @@ services:
               connect:
                 - name: connect
                   url: "http://connect:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:28081/health || exit 1"]
+      interval: 10s
+      retries: 5
     ports:
       - 8085:8080
     links:
@@ -226,14 +232,14 @@ services:
 
 volumes:
   es_data:
-    driver: local
+    name: nu_elastic_zookeeper_datalog
   storage_zookeeper_datalog:
-    name: storage_zookeeper_datalog
+    name: nu_elastic_zookeeper_datalog
   storage_zookeeper_data:
-    name: storage_zookeeper_data
+    name: nu_elastic_zookeeper_data
   storage_kafka_data:
-    name: storage_kafka_data
+    name: nu_elastic_kafka_data
   storage_influxdb:
-    name: storage_influxdb
+    name: nu_elastic_influxdb
   storage_designer:
-    name: storage_designer
+    name: nu_elastic_designer

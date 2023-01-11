@@ -178,7 +178,7 @@ services:
 
   designer:
     container_name: designer
-    image: touk/nussknacker:1.6.1
+    image: touk/nussknacker:1.7.0
     ports:
       - "3081:8080"
     environment:
